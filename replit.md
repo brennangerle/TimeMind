@@ -10,12 +10,14 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
-## August 15, 2025 - ClickUp Integration Completed
-- **Fixed time logging to ClickUp**: Updated API format to use start/end times instead of start/duration
-- **Resolved time conflicts**: Random hour offsets prevent overlapping entries completely
-- **Restricted task fetching**: Now only pulls from specified folder (92107254) and space (20367902) - total 181 tasks
+## August 15, 2025 - Search Functionality & ClickUp Integration
+- **Added searchable task selector**: Implemented real-time search for 182 ClickUp tasks with type-ahead filtering
+- **UI improvements**: Replaced basic dropdown with searchable combobox supporting instant filtering
+- **Performance optimized**: Limited to 50 visible results at a time for smooth interaction
+- **Fixed time logging to ClickUp**: Updated API format to use start/end times instead of start/duration  
+- **Resolved time conflicts**: Future timestamps prevent overlapping entries completely
+- **Restricted task fetching**: Now only pulls from specified folder (92107254) and space (20367902) - total 182 tasks
 - **Verified full workflow**: Parse → Match → Submit working end-to-end with real ClickUp data
-- **Authentication resolved**: Demo user creation fixed for all endpoints
 - **Production ready**: Successfully logging time entries to ClickUp workspace with unique timestamps
 
 # System Architecture

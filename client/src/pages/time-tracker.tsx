@@ -7,9 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Clock, MessageSquare, Table, Send, Eye, Plus, Trash2, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { Clock, MessageSquare, Table, Send, Eye, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Check, ChevronsUpDown, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ParsedEntry {
   projectName: string;
@@ -40,6 +43,8 @@ export default function TimeTracker() {
   const [parsedEntries, setParsedEntries] = useState<ParsedEntry[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntryForm[]>([]);
   const [showPreview, setShowPreview] = useState(false);
+  const [openComboboxes, setOpenComboboxes] = useState<Record<number, boolean>>({});
+  const [searchValues, setSearchValues] = useState<Record<number, string>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -294,27 +299,87 @@ export default function TimeTracker() {
                 {timeEntries.map((entry, index) => (
                   <div key={index} className="border border-slate-200 rounded-lg p-4 hover:border-slate-300 transition-colors">
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                      {/* Project Selection */}
+                      {/* Project Selection with Search */}
                       <div className="md:col-span-4">
                         <Label className="text-sm font-medium text-slate-700 mb-2">Project</Label>
                         <div className="relative">
-                          <Select
-                            value={entry.projectId}
-                            onValueChange={(value) => updateEntry(index, 'projectId', value)}
+                          <Popover 
+                            open={openComboboxes[index] || false} 
+                            onOpenChange={(open) => {
+                              setOpenComboboxes(prev => ({ ...prev, [index]: open }));
+                              if (!open) {
+                                setSearchValues(prev => ({ ...prev, [index]: "" }));
+                              }
+                            }}
                           >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select project..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {projects.map((project) => (
-                                <SelectItem key={project.id} value={project.id}>
-                                  {project.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={openComboboxes[index] || false}
+                                className="w-full justify-between font-normal"
+                              >
+                                <span className="truncate">
+                                  {entry.projectId
+                                    ? projects.find((project) => project.id === entry.projectId)?.name
+                                    : "Select project..."}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[400px] p-0" align="start">
+                              <Command>
+                                <CommandInput 
+                                  placeholder="Search tasks..." 
+                                  value={searchValues[index] || ""}
+                                  onValueChange={(value) => {
+                                    setSearchValues(prev => ({ ...prev, [index]: value }));
+                                  }}
+                                  className="h-9"
+                                />
+                                <CommandList className="max-h-[300px]">
+                                  <CommandEmpty>No task found.</CommandEmpty>
+                                  <CommandGroup>
+                                    {projects
+                                      .filter(project => {
+                                        const search = (searchValues[index] || "").toLowerCase();
+                                        return project.name.toLowerCase().includes(search);
+                                      })
+                                      .slice(0, 50) // Show max 50 results for performance
+                                      .map((project) => (
+                                        <CommandItem
+                                          key={project.id}
+                                          value={project.name}
+                                          onSelect={() => {
+                                            updateEntry(index, 'projectId', project.id);
+                                            updateEntry(index, 'projectName', project.name);
+                                            setOpenComboboxes(prev => ({ ...prev, [index]: false }));
+                                            setSearchValues(prev => ({ ...prev, [index]: "" }));
+                                          }}
+                                          className="cursor-pointer"
+                                        >
+                                          <Check
+                                            className={cn(
+                                              "mr-2 h-4 w-4",
+                                              entry.projectId === project.id ? "opacity-100" : "opacity-0"
+                                            )}
+                                          />
+                                          <span className="truncate">{project.name}</span>
+                                        </CommandItem>
+                                      ))}
+                                  </CommandGroup>
+                                  {projects.filter(p => p.name.toLowerCase().includes((searchValues[index] || "").toLowerCase())).length > 50 && (
+                                    <div className="px-2 py-1.5 text-xs text-muted-foreground border-t">
+                                      <Search className="inline h-3 w-3 mr-1" />
+                                      Showing first 50 results. Type to refine search.
+                                    </div>
+                                  )}
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
                           {entry.confidence && (
-                            <div className="absolute right-2 top-2 pointer-events-none">
+                            <div className="absolute right-2 top-2 pointer-events-none z-10">
                               <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                                 entry.confidence >= 90 ? 'bg-emerald-100 text-emerald-800' :
                                 entry.confidence >= 70 ? 'bg-amber-100 text-amber-800' :
