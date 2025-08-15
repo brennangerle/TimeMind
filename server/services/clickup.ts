@@ -200,11 +200,48 @@ export class ClickUpService {
 
   async getTasksFromSpace(spaceId: string): Promise<ClickUpTask[]> {
     try {
-      const response = await this.client.get(`/space/${spaceId}/list`);
-      const lists = response.data.lists || [];
-      
       const allTasks: ClickUpTask[] = [];
-      for (const list of lists) {
+      
+      // First, get all folders in the space
+      const foldersResponse = await this.client.get(`/space/${spaceId}/folder`);
+      const folders = foldersResponse.data.folders || [];
+      
+      // Fetch tasks from all folders in the space
+      for (const folder of folders) {
+        console.log(`  📂 Fetching from folder "${folder.name}" (${folder.id}) in space...`);
+        try {
+          const listsResponse = await this.client.get(`/folder/${folder.id}/list`);
+          const lists = listsResponse.data.lists || [];
+          
+          for (const list of lists) {
+            try {
+              const tasksResponse = await this.client.get(`/list/${list.id}/task`, {
+                params: { include_closed: false }
+              });
+              const tasks = tasksResponse.data.tasks?.map((task: any) => ({
+                id: task.id,
+                name: task.name,
+                status: task.status?.status || 'unknown',
+                project: {
+                  id: list.id,
+                  name: list.name,
+                },
+              })) || [];
+              allTasks.push(...tasks);
+            } catch (error) {
+              console.error(`    Failed to fetch tasks from list ${list.id}:`, error);
+            }
+          }
+        } catch (error) {
+          console.error(`  Failed to fetch lists from folder ${folder.id}:`, error);
+        }
+      }
+      
+      // Also get lists directly under the space (not in folders)
+      const directListsResponse = await this.client.get(`/space/${spaceId}/list`);
+      const directLists = directListsResponse.data.lists || [];
+      
+      for (const list of directLists) {
         try {
           const tasksResponse = await this.client.get(`/list/${list.id}/task`, {
             params: { include_closed: false }
@@ -220,7 +257,7 @@ export class ClickUpService {
           })) || [];
           allTasks.push(...tasks);
         } catch (error) {
-          console.error(`Failed to fetch tasks from list ${list.id}:`, error);
+          console.error(`Failed to fetch tasks from direct list ${list.id}:`, error);
         }
       }
       
@@ -235,24 +272,57 @@ export class ClickUpService {
     try {
       console.log("🎯 Starting fetch from specific locations only");
       
-      // Fetch from folder: 92107254
-      console.log("📁 Fetching from folder 92107254...");
-      const folderTasks = await this.getTasksFromFolder("92107254");
-      console.log("📁 Tasks from folder 92107254:", folderTasks.length);
+      const allTasks: ClickUpTask[] = [];
       
-      // Fetch from space: 20367902  
-      console.log("🌌 Fetching from space 20367902...");
-      const spaceTasks = await this.getTasksFromSpace("20367902");
-      console.log("🌌 Tasks from space 20367902:", spaceTasks.length);
+      // Fetch from folder: 92107254 (MREG folder)
+      console.log("📁 Fetching from folder 92107254 (MREG)...");
+      const mregFolderTasks = await this.getTasksFromFolder("92107254");
+      console.log("📁 Tasks from folder 92107254:", mregFolderTasks.length);
+      allTasks.push(...mregFolderTasks);
       
-      // Combine and deduplicate
-      const allTasks = [...folderTasks, ...spaceTasks];
+      // Fetch from specific Willmeng folder: 102875477 (where WMG task is)
+      console.log("📁 Fetching from folder 102875477 (Willmeng)...");
+      const willmengTasks = await this.getTasksFromFolder("102875477");
+      console.log("📁 Tasks from Willmeng folder:", willmengTasks.length);
+      allTasks.push(...willmengTasks);
+      
+      // Fetch from specific lists in space 20367902 (just direct lists, not all folders)
+      console.log("🌌 Fetching direct lists from space 20367902...");
+      try {
+        const directListsResponse = await this.client.get(`/space/20367902/list`);
+        const directLists = directListsResponse.data.lists || [];
+        console.log("  Found", directLists.length, "direct lists in space");
+        
+        for (const list of directLists) {
+          try {
+            const tasksResponse = await this.client.get(`/list/${list.id}/task`, {
+              params: { include_closed: false }
+            });
+            const tasks = tasksResponse.data.tasks?.map((task: any) => ({
+              id: task.id,
+              name: task.name,
+              status: task.status?.status || 'unknown',
+              project: {
+                id: list.id,
+                name: list.name,
+              },
+            })) || [];
+            allTasks.push(...tasks);
+          } catch (error) {
+            console.error(`  Failed to fetch tasks from list ${list.id}:`, error);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch direct lists from space:", error);
+      }
+      
+      // Deduplicate tasks
       const uniqueTasks = allTasks.filter((task, index, self) => 
         index === self.findIndex(t => t.id === task.id)
       );
       
       console.log("✅ Total unique tasks from specified locations:", uniqueTasks.length);
-      console.log("📝 Sample tasks:", uniqueTasks.slice(0, 3).map(t => t.name));
+      console.log("📝 Sample tasks:", uniqueTasks.slice(0, 5).map(t => t.name));
       return uniqueTasks;
     } catch (error) {
       console.error('❌ Failed to fetch tasks from specific locations:', error);

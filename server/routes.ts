@@ -166,6 +166,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Debug endpoint to check a specific task
+  app.get("/api/check-task/:taskId", async (req, res) => {
+    try {
+      const { taskId } = req.params;
+      let user = await storage.getUserByUsername("demo");
+      
+      // Create demo user if not exists
+      if (!user) {
+        user = await storage.createUser({ 
+          username: "demo", 
+          password: "demo",
+          clickupApiKey: process.env.CLICKUP_API_KEY || "",
+          clickupWorkspaceId: process.env.CLICKUP_WORKSPACE_ID || "",
+        });
+      }
+      
+      if (!user?.clickupApiKey) {
+        return res.status(400).json({ message: "ClickUp API key not configured" });
+      }
+      
+      const clickup = createClickUpService(user.clickupApiKey);
+      try {
+        const response = await (clickup as any).client.get(`/task/${taskId}`);
+        const task = response.data;
+        res.json({
+          id: task.id,
+          name: task.name,
+          listId: task.list?.id,
+          listName: task.list?.name,
+          folderId: task.folder?.id,
+          folderName: task.folder?.name,
+          spaceId: task.space?.id,
+          spaceName: task.space?.name,
+          status: task.status?.status,
+        });
+      } catch (error) {
+        console.error("Error fetching task:", error);
+        res.status(404).json({ message: "Task not found or API error" });
+      }
+    } catch (error) {
+      console.error("Check task error:", error);
+      res.status(500).json({ message: "Failed to check task" });
+    }
+  });
+
   // Get available projects
   app.get("/api/projects", async (req, res) => {
     try {
