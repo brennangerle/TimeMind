@@ -143,6 +143,102 @@ export class ClickUpService {
       return [];
     }
   }
+
+  async getTasksFromFolder(folderId: string): Promise<ClickUpTask[]> {
+    try {
+      const response = await this.client.get(`/folder/${folderId}/list`);
+      const lists = response.data.lists || [];
+      
+      const allTasks: ClickUpTask[] = [];
+      for (const list of lists) {
+        try {
+          const tasksResponse = await this.client.get(`/list/${list.id}/task`, {
+            params: { include_closed: false }
+          });
+          const tasks = tasksResponse.data.tasks?.map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            status: task.status?.status || 'unknown',
+            project: {
+              id: list.id,
+              name: list.name,
+            },
+          })) || [];
+          allTasks.push(...tasks);
+        } catch (error) {
+          console.error(`Failed to fetch tasks from list ${list.id}:`, error);
+        }
+      }
+      
+      return allTasks;
+    } catch (error) {
+      console.error('ClickUp API error (get tasks from folder):', error);
+      return [];
+    }
+  }
+
+  async getTasksFromSpace(spaceId: string): Promise<ClickUpTask[]> {
+    try {
+      const response = await this.client.get(`/space/${spaceId}/list`);
+      const lists = response.data.lists || [];
+      
+      const allTasks: ClickUpTask[] = [];
+      for (const list of lists) {
+        try {
+          const tasksResponse = await this.client.get(`/list/${list.id}/task`, {
+            params: { include_closed: false }
+          });
+          const tasks = tasksResponse.data.tasks?.map((task: any) => ({
+            id: task.id,
+            name: task.name,
+            status: task.status?.status || 'unknown',
+            project: {
+              id: list.id,
+              name: list.name,
+            },
+          })) || [];
+          allTasks.push(...tasks);
+        } catch (error) {
+          console.error(`Failed to fetch tasks from list ${list.id}:`, error);
+        }
+      }
+      
+      return allTasks;
+    } catch (error) {
+      console.error('ClickUp API error (get tasks from space):', error);
+      return [];
+    }
+  }
+
+  async getTasksFromSpecificLocations(): Promise<ClickUpTask[]> {
+    try {
+      console.log("🎯 Starting fetch from specific locations only");
+      
+      // Fetch from folder: 92107254
+      console.log("📁 Fetching from folder 92107254...");
+      const folderTasks = await this.getTasksFromFolder("92107254");
+      console.log("📁 Tasks from folder 92107254:", folderTasks.length);
+      
+      // Fetch from space: 20367902  
+      console.log("🌌 Fetching from space 20367902...");
+      const spaceTasks = await this.getTasksFromSpace("20367902");
+      console.log("🌌 Tasks from space 20367902:", spaceTasks.length);
+      
+      // Combine and deduplicate
+      const allTasks = [...folderTasks, ...spaceTasks];
+      const uniqueTasks = allTasks.filter((task, index, self) => 
+        index === self.findIndex(t => t.id === task.id)
+      );
+      
+      console.log("✅ Total unique tasks from specified locations:", uniqueTasks.length);
+      console.log("📝 Sample tasks:", uniqueTasks.slice(0, 3).map(t => t.name));
+      return uniqueTasks;
+    } catch (error) {
+      console.error('❌ Failed to fetch tasks from specific locations:', error);
+      console.error('Error details:', error instanceof Error ? error.message : 'Unknown error');
+      return [];
+    }
+  }
 }
 
 export function createClickUpService(apiKey: string): ClickUpService {

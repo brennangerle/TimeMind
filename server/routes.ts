@@ -33,10 +33,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (user.clickupApiKey && user.clickupWorkspaceId) {
         try {
-          console.log("Fetching ClickUp tasks with workspace ID:", user.clickupWorkspaceId);
+          console.log("Fetching ClickUp tasks from specific locations only");
           const clickup = createClickUpService(user.clickupApiKey);
-          const tasks = await clickup.searchTasks(user.clickupWorkspaceId, "");
-          console.log("Found ClickUp tasks:", tasks.length);
+          const tasks = await clickup.getTasksFromSpecificLocations();
+          console.log("Found ClickUp tasks from specified locations:", tasks.length);
           
           // Convert tasks to project-like structure for compatibility
           const taskProjects = tasks.map(task => ({
@@ -178,8 +178,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           // Fetch fresh tasks from ClickUp
           const clickup = createClickUpService(user.clickupApiKey);
-          const tasks = await clickup.searchTasks(user.clickupWorkspaceId, "");
-          console.log("Fetched ClickUp tasks for projects endpoint:", tasks.length);
+          const tasks = await clickup.getTasksFromSpecificLocations();
+          console.log("Fetched ClickUp tasks from specified locations for projects endpoint:", tasks.length);
           
           projects = tasks.map(task => ({
             id: task.id,
@@ -204,8 +204,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (user?.clickupWorkspaceId && user?.clickupApiKey) {
           try {
             const clickup = createClickUpService(user.clickupApiKey);
-            const tasks = await clickup.searchTasks(user.clickupWorkspaceId, "");
-            console.log("Fetched ClickUp tasks for projects endpoint:", tasks.length);
+            const tasks = await clickup.getTasksFromSpecificLocations();
+            console.log("Fetched ClickUp tasks from specified locations for projects endpoint:", tasks.length);
             
             projects = tasks.map(task => ({
               id: task.id,
