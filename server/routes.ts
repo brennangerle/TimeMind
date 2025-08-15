@@ -29,37 +29,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get available projects from ClickUp
       let availableProjects: string[] = [];
-      try {
-        const clickup = createClickUpService(user.clickupApiKey);
-        const projects = await clickup.getProjects(user.clickupWorkspaceId);
-        availableProjects = projects.map(p => p.name);
+      let storedProjects: any[] = [];
+      
+      if (user.clickupApiKey && user.clickupWorkspaceId) {
+        try {
+          console.log("Fetching ClickUp projects with workspace ID:", user.clickupWorkspaceId);
+          const clickup = createClickUpService(user.clickupApiKey);
+          const projects = await clickup.getProjects(user.clickupWorkspaceId);
+          console.log("Found ClickUp projects:", projects.length);
+          availableProjects = projects.map(p => p.name);
+          
+          // Sync projects to storage
+          await storage.syncProjects(
+            user.clickupWorkspaceId,
+            projects.map(p => ({
+              clickupId: p.id,
+              name: p.name,
+              workspaceId: user.clickupWorkspaceId!,
+            }))
+          );
+          
+          // Get stored projects for matching
+          storedProjects = await storage.getProjects(user.clickupWorkspaceId);
+          console.log("Retrieved stored projects:", storedProjects.length);
+        } catch (error) {
+          console.error("Failed to fetch ClickUp projects:", error);
+          console.error("Error details:", error instanceof Error ? error.message : "Unknown error");
+        }
         
-        // Sync projects to storage
-        await storage.syncProjects(
-          user.clickupWorkspaceId,
-          projects.map(p => ({
+        // If no projects found from ClickUp, use mock projects
+        if (storedProjects.length === 0) {
+          console.log("No ClickUp projects found, falling back to mock projects");
+          const mockProjects = [
+            { id: "mock-1", name: "Mobile App" },
+            { id: "mock-2", name: "MREG Project" },
+            { id: "mock-3", name: "Website Redesign" },
+            { id: "mock-4", name: "API Development" },
+          ];
+          
+          availableProjects = mockProjects.map(p => p.name);
+          storedProjects = mockProjects.map(p => ({
+            id: `stored-${p.id}`,
             clickupId: p.id,
             name: p.name,
             workspaceId: user.clickupWorkspaceId!,
-          }))
-        );
-      } catch (error) {
-        console.error("Failed to fetch ClickUp projects:", error);
+          }));
+        }
+      } else {
+        console.log("ClickUp credentials missing - API Key:", !!user.clickupApiKey, "Workspace ID:", !!user.clickupWorkspaceId);
+        console.log("Environment API Key:", !!process.env.CLICKUP_API_KEY, "Environment Workspace ID:", !!process.env.CLICKUP_WORKSPACE_ID);
+        
+        // For demo purposes, create some mock projects until ClickUp is configured
+        const mockProjects = [
+          { id: "mock-1", name: "Mobile App" },
+          { id: "mock-2", name: "MREG Project" },
+          { id: "mock-3", name: "Website Redesign" },
+          { id: "mock-4", name: "API Development" },
+        ];
+        
+        availableProjects = mockProjects.map(p => p.name);
+        storedProjects = mockProjects.map(p => ({
+          id: `stored-${p.id}`,
+          clickupId: p.id,
+          name: p.name,
+          workspaceId: "demo-workspace",
+        }));
+        
+        console.log("Using mock projects for demo:", availableProjects);
+        console.log("storedProjects created:", storedProjects.length, "projects");
       }
 
       // Parse the natural language input
       const parsedEntries = await parseNaturalLanguageInput(text, availableProjects);
       
-      // Get stored projects for matching
-      const storedProjects = await storage.getProjects(user.clickupWorkspaceId);
-      
       // Enhance parsed entries with project matching
       const enhancedEntries = await Promise.all(
         parsedEntries.map(async (entry) => {
-          const projectMatch = await matchProjectToClickUp(
-            entry.projectName,
-            storedProjects.map(p => ({ id: p.clickupId, name: p.name }))
+          let projectMatch = null;
+          
+          // Simple fuzzy matching for mock projects
+          const bestMatch = storedProjects.find(p => 
+            p.name.toLowerCase().includes(entry.projectName.toLowerCase()) ||
+            entry.projectName.toLowerCase().includes(p.name.toLowerCase()) ||
+            entry.projectName.toLowerCase().replace(/[^a-z]/g, '').includes(p.name.toLowerCase().replace(/[^a-z]/g, ''))
           );
+          
+          if (bestMatch) {
+            projectMatch = {
+              projectId: bestMatch.clickupId,
+              confidence: 85
+            };
+          } else {
+            // Try AI matching if available
+            try {
+              projectMatch = await matchProjectToClickUp(
+                entry.projectName,
+                storedProjects.map(p => ({ id: p.clickupId, name: p.name }))
+              );
+            } catch (matchError) {
+              console.log("AI matching failed, using simple matching");
+            }
+          }
           
           return {
             ...entry,
@@ -93,17 +163,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // For demo purposes, use demo user
       const user = await storage.getUserByUsername("demo");
-      if (!user?.clickupWorkspaceId) {
-        return res.json({ projects: [] });
+      
+      let projects = [];
+      
+      if (user?.clickupWorkspaceId && user?.clickupApiKey) {
+        try {
+          projects = await storage.getProjects(user.clickupWorkspaceId);
+          projects = projects.map(p => ({
+            id: p.clickupId,
+            name: p.name,
+          }));
+        } catch (error) {
+          console.error("Error fetching stored projects:", error);
+        }
+      }
+      
+      // If no projects found, provide mock projects for demo
+      if (projects.length === 0) {
+        projects = [
+          { id: "mock-1", name: "Mobile App" },
+          { id: "mock-2", name: "MREG Project" },
+          { id: "mock-3", name: "Website Redesign" },
+          { id: "mock-4", name: "API Development" },
+        ];
+        console.log("Returning mock projects for demo");
       }
 
-      const projects = await storage.getProjects(user.clickupWorkspaceId);
-      res.json({ 
-        projects: projects.map(p => ({
-          id: p.clickupId,
-          name: p.name,
-        }))
-      });
+      res.json({ projects });
     } catch (error) {
       console.error("Projects error:", error);
       res.status(500).json({ message: "Failed to fetch projects" });
