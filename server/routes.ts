@@ -231,6 +231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/submit", async (req, res) => {
     try {
       const { entries } = req.body;
+      console.log("\n📝 Submit request received with entries:", JSON.stringify(entries, null, 2));
       
       if (!Array.isArray(entries) || entries.length === 0) {
         return res.status(400).json({ message: "No entries to submit" });
@@ -255,6 +256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const results = [];
 
       for (const entry of entries) {
+        console.log("\n🔄 Processing entry:", entry);
         try {
           const validatedEntry = timeEntryUpdateSchema.parse(entry);
           
@@ -279,24 +281,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let logDate = new Date(validatedEntry.date);
           const today = new Date();
           
-          // Create a unique timestamp to prevent overlaps
-          // Use a larger offset (hours) instead of milliseconds
-          const hoursOffset = Math.floor(Math.random() * 24); // Random hours within a day
-          const minutesOffset = Math.floor(Math.random() * 60); // Random minutes
-          const totalOffset = (hoursOffset * 60 + minutesOffset) * 60 * 1000; // Convert to milliseconds
+          console.log("📅 Original date:", validatedEntry.date);
+          console.log("⏰ Duration:", validatedEntry.duration, "minutes");
+          
+          // Use a future timestamp to avoid conflicts with existing entries
+          // Add increasing offset based on submission count to ensure uniqueness
+          const submissionOffset = Date.now() % 10000; // Use last 4 digits of timestamp as unique offset
+          const futureOffset = 5000 + submissionOffset; // Start 5+ seconds in the future
           
           if (logDate.toDateString() === today.toDateString()) {
-            // For today, go back in time by random hours to avoid conflicts
-            const endTime = new Date(Date.now() - totalOffset);
-            const startTime = new Date(endTime.getTime() - (validatedEntry.duration * 60 * 1000));
+            // For today, use a future time slot to avoid all existing entries
+            // This ensures no overlap with any previously logged time
+            const startTime = new Date(Date.now() + futureOffset);
+            const endTime = new Date(startTime.getTime() + (validatedEntry.duration * 60 * 1000));
             logDate = startTime;
+            console.log("🕐 Using future time slot for today:", { 
+              start: startTime.toISOString(), 
+              end: endTime.toISOString(),
+              startMs: startTime.getTime(),
+              endMs: endTime.getTime(),
+              note: "Using future timestamp to avoid conflicts"
+            });
           } else {
-            // For other dates, set a specific time to avoid conflicts
-            // Set time to a random hour/minute on that date
-            logDate.setHours(hoursOffset, minutesOffset, 0, 0);
+            // For past dates, use a timestamp based on the current millisecond to ensure uniqueness
+            // This creates a unique time slot that won't conflict with any other submission
+            const msInDay = currentTime % (24 * 60 * 60 * 1000);
+            const hours = Math.floor(msInDay / (60 * 60 * 1000));
+            const minutes = Math.floor((msInDay % (60 * 60 * 1000)) / (60 * 1000));
+            const seconds = Math.floor((msInDay % (60 * 1000)) / 1000);
+            const milliseconds = msInDay % 1000;
+            
+            logDate.setHours(hours, minutes, seconds, milliseconds);
+            console.log("🕑 Using unique time for past date:", {
+              date: logDate.toISOString(),
+              timestamp: logDate.getTime()
+            });
           }
 
           // Log time to ClickUp
+          console.log("📤 Submitting to ClickUp:", {
+            taskId: taskId,
+            duration: validatedEntry.duration,
+            startTime: logDate.toISOString(),
+            notes: validatedEntry.notes
+          });
           const clickupTimeId = await clickup.logTime(
             taskId,
             validatedEntry.duration,

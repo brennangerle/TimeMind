@@ -95,17 +95,33 @@ export class ClickUpService {
       const startTime = date.getTime();
       const endTime = startTime + (duration * 60 * 1000); // Add duration in milliseconds
       
-      const response = await this.client.post(`/task/${taskId}/time`, {
+      console.log("\n🚀 ClickUp API Call - Logging Time:");
+      console.log("  Task ID:", taskId);
+      console.log("  Duration:", duration, "minutes");
+      console.log("  Start:", new Date(startTime).toISOString(), `(${startTime})`);
+      console.log("  End:", new Date(endTime).toISOString(), `(${endTime})`);
+      console.log("  Description:", description || "(empty)");
+      
+      const requestBody = {
         description: description || '',
         start: startTime,
         end: endTime,
-      });
+      };
+      
+      console.log("  Request body:", JSON.stringify(requestBody));
+      
+      const response = await this.client.post(`/task/${taskId}/time`, requestBody);
+      
+      console.log("✅ ClickUp time logged successfully! ID:", response.data.id || response.data.data?.id);
       return response.data.data?.id || response.data.id;
     } catch (error) {
-      console.error('ClickUp API error (log time):', error);
+      console.error('\n❌ ClickUp API error (log time):', error);
       console.error('Error details:', error instanceof Error ? error.message : 'Unknown error');
       if (error && typeof error === 'object' && 'response' in error) {
-        console.error('API Response:', (error as any).response?.data);
+        const apiError = (error as any).response?.data;
+        console.error('API Response:', apiError);
+        console.error('Error code:', apiError?.ECODE);
+        console.error('Error message:', apiError?.err);
       }
       throw new Error('Failed to log time in ClickUp');
     }
