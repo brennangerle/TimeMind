@@ -95,15 +95,11 @@ export class ClickUpService {
       const startTime = date.getTime();
       const endTime = startTime + (duration * 60 * 1000); // Add duration in milliseconds
       
-      console.log("Logging time to ClickUp:", { taskId, duration, startTime, endTime, description });
-      
       const response = await this.client.post(`/task/${taskId}/time`, {
         description: description || '',
         start: startTime,
         end: endTime,
       });
-      
-      console.log("ClickUp time logging response:", response.data);
       return response.data.data?.id || response.data.id;
     } catch (error) {
       console.error('ClickUp API error (log time):', error);

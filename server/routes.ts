@@ -238,25 +238,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // For demo purposes, create demo user if not exists
       let user = await storage.getUserByUsername("demo");
-      console.log("Found demo user:", !!user);
-      
       if (!user) {
-        console.log("Creating demo user with ClickUp credentials");
-        console.log("API Key available:", !!process.env.CLICKUP_API_KEY);
-        console.log("Workspace ID available:", !!process.env.CLICKUP_WORKSPACE_ID);
-        
         user = await storage.createUser({ 
           username: "demo", 
           password: "demo",
           clickupApiKey: process.env.CLICKUP_API_KEY || "",
           clickupWorkspaceId: process.env.CLICKUP_WORKSPACE_ID || "",
         });
-        
-        console.log("Created demo user with ClickUp key:", !!user?.clickupApiKey);
       }
       
       if (!user?.clickupApiKey) {
-        console.log("User ClickUp API key not found:", user);
         return res.status(400).json({ message: "ClickUp API key not configured" });
       }
 
@@ -284,11 +275,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Continue with projectId as taskId for fallback
           }
 
+          // Parse the date and handle time conflicts by using current time if date is today
+          let logDate = new Date(validatedEntry.date);
+          const today = new Date();
+          
+          // If logging for today, use current time to avoid conflicts
+          if (logDate.toDateString() === today.toDateString()) {
+            // Use current time minus the duration to create a recent time block
+            const endTime = new Date();
+            const startTime = new Date(endTime.getTime() - (validatedEntry.duration * 60 * 1000));
+            logDate = startTime;
+          }
+
           // Log time to ClickUp
           const clickupTimeId = await clickup.logTime(
             taskId,
             validatedEntry.duration,
-            new Date(validatedEntry.date),
+            logDate,
             validatedEntry.notes
           );
 
