@@ -287,8 +287,8 @@ export class ClickUpService {
       allTasks.push(...willmengTasks);
       
       // Scan all folders in space 20367902 for lists with project-related keywords
-      console.log("🔍 Scanning space 20367902 for project-related lists...");
-      const projectKeywords = ['project', 'wmg', 'mreg', 'task', 'work', 'internal', 'admin'];
+      console.log("🔍 Scanning space 20367902 for lists with 'projects' in the name...");
+      const projectKeywords = ['projects', 'project', 'wmg', 'mreg', 'task', 'work', 'internal', 'admin'];
       
       try {
         // Get all folders in the space
@@ -300,18 +300,22 @@ export class ClickUpService {
         let folderCount = 0;
         let listCount = 0;
         
-        // Limit to first 50 folders to avoid timeout
-        const foldersToScan = folders.slice(0, 50);
-        console.log(`  Scanning first ${foldersToScan.length} folders for lists with keywords...`);
+        // Scan all folders - focus on "projects" keyword
+        console.log(`  Scanning all ${folders.length} folders for lists with 'projects' and other keywords...`);
         
-        for (const folder of foldersToScan) {
+        for (const folder of folders) {
           try {
             const listsResponse = await this.client.get(`/folder/${folder.id}/list`);
             const lists = listsResponse.data.lists || [];
             
-            // Only fetch tasks from lists with relevant names
+            // Only fetch tasks from lists with relevant names (prioritize "projects")
             const relevantLists = lists.filter((list: any) => {
               const listName = list.name.toLowerCase();
+              // Specifically check for "projects" first
+              if (listName.includes('projects')) {
+                console.log(`      ✓ Found list with "projects": ${list.name}`);
+                return true;
+              }
               return projectKeywords.some(keyword => listName.includes(keyword));
             });
             
