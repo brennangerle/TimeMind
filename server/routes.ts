@@ -275,16 +275,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Continue with projectId as taskId for fallback
           }
 
-          // Parse the date and handle time conflicts by using current time if date is today
+          // Parse the date and handle time conflicts
           let logDate = new Date(validatedEntry.date);
           const today = new Date();
           
-          // If logging for today, use current time to avoid conflicts
+          // Create a unique timestamp to prevent overlaps
+          // Use a larger offset (hours) instead of milliseconds
+          const hoursOffset = Math.floor(Math.random() * 24); // Random hours within a day
+          const minutesOffset = Math.floor(Math.random() * 60); // Random minutes
+          const totalOffset = (hoursOffset * 60 + minutesOffset) * 60 * 1000; // Convert to milliseconds
+          
           if (logDate.toDateString() === today.toDateString()) {
-            // Use current time minus the duration to create a recent time block
-            const endTime = new Date();
+            // For today, go back in time by random hours to avoid conflicts
+            const endTime = new Date(Date.now() - totalOffset);
             const startTime = new Date(endTime.getTime() - (validatedEntry.duration * 60 * 1000));
             logDate = startTime;
+          } else {
+            // For other dates, set a specific time to avoid conflicts
+            // Set time to a random hour/minute on that date
+            logDate.setHours(hoursOffset, minutesOffset, 0, 0);
           }
 
           // Log time to ClickUp
