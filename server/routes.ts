@@ -33,16 +33,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (user.clickupApiKey && user.clickupWorkspaceId) {
         try {
-          console.log("Fetching ClickUp projects with workspace ID:", user.clickupWorkspaceId);
+          console.log("Fetching ClickUp tasks with workspace ID:", user.clickupWorkspaceId);
           const clickup = createClickUpService(user.clickupApiKey);
-          const projects = await clickup.getProjects(user.clickupWorkspaceId);
-          console.log("Found ClickUp projects:", projects.length);
-          availableProjects = projects.map(p => p.name);
+          const tasks = await clickup.searchTasks(user.clickupWorkspaceId, "");
+          console.log("Found ClickUp tasks:", tasks.length);
           
-          // Sync projects to storage
+          // Convert tasks to project-like structure for compatibility
+          const taskProjects = tasks.map(task => ({
+            id: task.id,
+            name: task.name,
+            status: task.status,
+          }));
+          
+          availableProjects = taskProjects.map(p => p.name);
+          
+          // Sync tasks as projects to storage for matching
           await storage.syncProjects(
             user.clickupWorkspaceId,
-            projects.map(p => ({
+            taskProjects.map(p => ({
               clickupId: p.id,
               name: p.name,
               workspaceId: user.clickupWorkspaceId!,
@@ -51,9 +59,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Get stored projects for matching
           storedProjects = await storage.getProjects(user.clickupWorkspaceId);
-          console.log("Retrieved stored projects:", storedProjects.length);
+          console.log("Retrieved stored tasks as projects:", storedProjects.length);
         } catch (error) {
-          console.error("Failed to fetch ClickUp projects:", error);
+          console.error("Failed to fetch ClickUp tasks:", error);
           console.error("Error details:", error instanceof Error ? error.message : "Unknown error");
         }
         
@@ -168,25 +176,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (user?.clickupWorkspaceId && user?.clickupApiKey) {
         try {
-          projects = await storage.getProjects(user.clickupWorkspaceId);
-          projects = projects.map(p => ({
-            id: p.clickupId,
-            name: p.name,
+          // Fetch fresh tasks from ClickUp
+          const clickup = createClickUpService(user.clickupApiKey);
+          const tasks = await clickup.searchTasks(user.clickupWorkspaceId, "");
+          console.log("Fetched ClickUp tasks for projects endpoint:", tasks.length);
+          
+          projects = tasks.map(task => ({
+            id: task.id,
+            name: task.name,
           }));
         } catch (error) {
-          console.error("Error fetching stored projects:", error);
+          console.error("Error fetching ClickUp tasks for projects:", error);
+          return res.status(500).json({ message: "Failed to fetch ClickUp tasks" });
         }
-      }
-      
-      // If no projects found, provide mock projects for demo
-      if (projects.length === 0) {
-        projects = [
-          { id: "mock-1", name: "Mobile App" },
-          { id: "mock-2", name: "MREG Project" },
-          { id: "mock-3", name: "Website Redesign" },
-          { id: "mock-4", name: "API Development" },
-        ];
-        console.log("Returning mock projects for demo");
+      } else {
+        // Create demo user if not exists (same as in parse endpoint)
+        let user = await storage.getUserByUsername("demo");
+        if (!user) {
+          user = await storage.createUser({ 
+            username: "demo", 
+            password: "demo",
+            clickupApiKey: process.env.CLICKUP_API_KEY || "",
+            clickupWorkspaceId: process.env.CLICKUP_WORKSPACE_ID || "",
+          });
+        }
+        
+        if (user?.clickupWorkspaceId && user?.clickupApiKey) {
+          try {
+            const clickup = createClickUpService(user.clickupApiKey);
+            const tasks = await clickup.searchTasks(user.clickupWorkspaceId, "");
+            console.log("Fetched ClickUp tasks for projects endpoint:", tasks.length);
+            
+            projects = tasks.map(task => ({
+              id: task.id,
+              name: task.name,
+            }));
+          } catch (error) {
+            console.error("Error fetching ClickUp tasks for projects:", error);
+            return res.status(500).json({ message: "Failed to fetch ClickUp tasks" });
+          }
+        } else {
+          return res.status(400).json({ message: "ClickUp credentials not configured" });
+        }
       }
 
       res.json({ projects });
