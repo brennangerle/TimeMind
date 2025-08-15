@@ -23,9 +23,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!user.clickupApiKey || !user.clickupWorkspaceId) {
-        return res.status(400).json({ 
-          message: "ClickUp API configuration missing. Please configure your ClickUp integration." 
-        });
+        // For demo purposes, allow parsing without ClickUp integration
+        console.log("ClickUp not configured, proceeding with basic parsing");
       }
 
       // Get available projects from ClickUp

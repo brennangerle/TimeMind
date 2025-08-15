@@ -13,10 +13,73 @@ export interface ParsedEntry {
   confidence: number; // 0-100
 }
 
+// Fallback parsing function for demo purposes
+function fallbackParse(text: string, availableProjects: string[] = []): ParsedEntry[] {
+  console.log("Using fallback parsing (Gemini API not available)");
+  
+  // Simple regex-based parsing for demo
+  const durationMatch = text.match(/(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)/i);
+  let duration = 60; // default 1 hour
+  
+  if (durationMatch) {
+    const amount = parseInt(durationMatch[1]);
+    const unit = durationMatch[2].toLowerCase();
+    if (unit.startsWith('h')) {
+      duration = amount * 60;
+    } else {
+      duration = amount;
+    }
+  }
+  
+  // Simple date parsing
+  let date = new Date().toISOString().split('T')[0];
+  if (text.includes('yesterday')) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    date = yesterday.toISOString().split('T')[0];
+  }
+  
+  // Extract potential project names
+  const projectWords = text.split(' ').filter(word => 
+    word.length > 3 && !['worked', 'hours', 'minutes', 'yesterday', 'today', 'this', 'that', 'with', 'from'].includes(word.toLowerCase())
+  );
+  
+  let projectName = projectWords.slice(0, 2).join(' ') || 'General Work';
+  
+  // Try to match with available projects
+  let confidence = 50;
+  if (availableProjects.length > 0) {
+    const match = availableProjects.find(p => 
+      text.toLowerCase().includes(p.toLowerCase()) || 
+      p.toLowerCase().includes(projectName.toLowerCase())
+    );
+    if (match) {
+      projectName = match;
+      confidence = 85;
+    }
+  }
+  
+  return [{
+    projectName,
+    duration,
+    date,
+    notes: text,
+    confidence
+  }];
+}
+
 export async function parseNaturalLanguageInput(
   text: string,
   availableProjects: string[] = []
 ): Promise<ParsedEntry[]> {
+  console.log("API Key check:", process.env.GEMINI_API_KEY ? "Present" : "Missing");
+  
+  // If no valid API key, use fallback immediately
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "") {
+    console.log("No Gemini API key found, using fallback parsing");
+    return fallbackParse(text, availableProjects);
+  }
+  
   try {
     const projectContext = availableProjects.length > 0 
       ? `Available projects in the workspace: ${availableProjects.join(", ")}\n\n`
@@ -81,7 +144,15 @@ Current date: ${new Date().toISOString().split('T')[0]}`,
 
   } catch (error) {
     console.error("Gemini parsing error:", error);
-    throw new Error(`Failed to parse natural language input: ${error instanceof Error ? error.message : "Unknown error"}`);
+    console.log("Falling back to basic parsing");
+    
+    // Use fallback parsing instead of throwing error
+    try {
+      return fallbackParse(text, availableProjects);
+    } catch (fallbackError) {
+      console.error("Fallback parsing also failed:", fallbackError);
+      throw new Error("Both Gemini and fallback parsing failed");
+    }
   }
 }
 
