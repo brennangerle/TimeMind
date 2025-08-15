@@ -91,17 +91,26 @@ export class ClickUpService {
 
   async logTime(taskId: string, duration: number, date: Date, description?: string): Promise<string> {
     try {
+      // Create start and end times for the specified date
       const startTime = date.getTime();
+      const endTime = startTime + (duration * 60 * 1000); // Add duration in milliseconds
+      
+      console.log("Logging time to ClickUp:", { taskId, duration, startTime, endTime, description });
       
       const response = await this.client.post(`/task/${taskId}/time`, {
         description: description || '',
         start: startTime,
-        duration: duration * 60 * 1000, // Convert minutes to milliseconds
+        end: endTime,
       });
       
+      console.log("ClickUp time logging response:", response.data);
       return response.data.data?.id || response.data.id;
     } catch (error) {
       console.error('ClickUp API error (log time):', error);
+      console.error('Error details:', error instanceof Error ? error.message : 'Unknown error');
+      if (error && typeof error === 'object' && 'response' in error) {
+        console.error('API Response:', (error as any).response?.data);
+      }
       throw new Error('Failed to log time in ClickUp');
     }
   }

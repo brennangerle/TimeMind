@@ -236,9 +236,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No entries to submit" });
       }
 
-      // For demo purposes, use demo user
-      const user = await storage.getUserByUsername("demo");
+      // For demo purposes, create demo user if not exists
+      let user = await storage.getUserByUsername("demo");
+      console.log("Found demo user:", !!user);
+      
+      if (!user) {
+        console.log("Creating demo user with ClickUp credentials");
+        console.log("API Key available:", !!process.env.CLICKUP_API_KEY);
+        console.log("Workspace ID available:", !!process.env.CLICKUP_WORKSPACE_ID);
+        
+        user = await storage.createUser({ 
+          username: "demo", 
+          password: "demo",
+          clickupApiKey: process.env.CLICKUP_API_KEY || "",
+          clickupWorkspaceId: process.env.CLICKUP_WORKSPACE_ID || "",
+        });
+        
+        console.log("Created demo user with ClickUp key:", !!user?.clickupApiKey);
+      }
+      
       if (!user?.clickupApiKey) {
+        console.log("User ClickUp API key not found:", user);
         return res.status(400).json({ message: "ClickUp API key not configured" });
       }
 

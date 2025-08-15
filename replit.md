@@ -8,6 +8,14 @@ The core functionality allows users to input time tracking information in natura
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes
+
+## August 15, 2025 - ClickUp Integration Completed
+- **Fixed time logging to ClickUp**: Updated API format to use start/end times instead of start/duration
+- **Restricted task fetching**: Now only pulls from specified folder (92107254) and space (20367902) - total 182 tasks
+- **Verified full workflow**: Parse → Match → Submit working end-to-end with real ClickUp data
+- **Authentication resolved**: Demo user creation fixed for all endpoints
+
 # System Architecture
 
 ## Frontend Architecture
