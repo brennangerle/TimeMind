@@ -286,14 +286,81 @@ export class ClickUpService {
       console.log("📁 Tasks from Willmeng folder:", willmengTasks.length);
       allTasks.push(...willmengTasks);
       
-      // Fetch from specific lists in space 20367902 (just direct lists, not all folders)
-      console.log("🌌 Fetching direct lists from space 20367902...");
+      // Scan all folders in space 20367902 for lists with project-related keywords
+      console.log("🔍 Scanning space 20367902 for project-related lists...");
+      const projectKeywords = ['project', 'wmg', 'mreg', 'task', 'work', 'internal', 'admin'];
+      
       try {
+        // Get all folders in the space
+        const foldersResponse = await this.client.get(`/space/20367902/folder`);
+        const folders = foldersResponse.data.folders || [];
+        console.log(`  Found ${folders.length} folders in space`);
+        
+        // Scan ALL folders but only fetch from lists with relevant keywords
+        let folderCount = 0;
+        let listCount = 0;
+        
+        // Limit to first 50 folders to avoid timeout
+        const foldersToScan = folders.slice(0, 50);
+        console.log(`  Scanning first ${foldersToScan.length} folders for lists with keywords...`);
+        
+        for (const folder of foldersToScan) {
+          try {
+            const listsResponse = await this.client.get(`/folder/${folder.id}/list`);
+            const lists = listsResponse.data.lists || [];
+            
+            // Only fetch tasks from lists with relevant names
+            const relevantLists = lists.filter((list: any) => {
+              const listName = list.name.toLowerCase();
+              return projectKeywords.some(keyword => listName.includes(keyword));
+            });
+            
+            if (relevantLists.length > 0) {
+              folderCount++;
+              listCount += relevantLists.length;
+              console.log(`    📂 Found ${relevantLists.length} relevant lists in folder "${folder.name}"`);
+              
+              for (const list of relevantLists) {
+                try {
+                  const tasksResponse = await this.client.get(`/list/${list.id}/task`, {
+                    params: { include_closed: false }
+                  });
+                  const tasks = tasksResponse.data.tasks?.map((task: any) => ({
+                    id: task.id,
+                    name: task.name,
+                    status: task.status?.status || 'unknown',
+                    project: {
+                      id: list.id,
+                      name: list.name,
+                    },
+                  })) || [];
+                  allTasks.push(...tasks);
+                } catch (error) {
+                  console.error(`      Failed to fetch tasks from list ${list.id}`);
+                }
+              }
+            }
+          } catch (error) {
+            // Silent fail to avoid cluttering logs
+          }
+        }
+        
+        console.log(`  Scanned folders with relevant lists: ${folderCount}, Total relevant lists: ${listCount}`);
+        
+        // Also get direct lists under the space
         const directListsResponse = await this.client.get(`/space/20367902/list`);
         const directLists = directListsResponse.data.lists || [];
-        console.log("  Found", directLists.length, "direct lists in space");
+        console.log(`  Found ${directLists.length} direct lists in space`);
         
-        for (const list of directLists) {
+        // Filter direct lists by keywords
+        const relevantDirectLists = directLists.filter((list: any) => {
+          const listName = list.name.toLowerCase();
+          return projectKeywords.some(keyword => listName.includes(keyword));
+        });
+        
+        console.log(`  Processing ${relevantDirectLists.length} relevant direct lists`);
+        
+        for (const list of relevantDirectLists) {
           try {
             const tasksResponse = await this.client.get(`/list/${list.id}/task`, {
               params: { include_closed: false }
@@ -309,11 +376,11 @@ export class ClickUpService {
             })) || [];
             allTasks.push(...tasks);
           } catch (error) {
-            console.error(`  Failed to fetch tasks from list ${list.id}:`, error);
+            console.error(`  Failed to fetch tasks from list ${list.id}`);
           }
         }
       } catch (error) {
-        console.error("Failed to fetch direct lists from space:", error);
+        console.error("Failed to scan space for project lists:", error);
       }
       
       // Deduplicate tasks
@@ -321,7 +388,7 @@ export class ClickUpService {
         index === self.findIndex(t => t.id === task.id)
       );
       
-      console.log("✅ Total unique tasks from specified locations:", uniqueTasks.length);
+      console.log("✅ Total unique tasks from all locations:", uniqueTasks.length);
       console.log("📝 Sample tasks:", uniqueTasks.slice(0, 5).map(t => t.name));
       return uniqueTasks;
     } catch (error) {
