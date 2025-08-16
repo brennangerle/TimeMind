@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { parseNaturalLanguageInput, matchProjectToClickUp } from "./services/gemini";
 import { createClickUpService } from "./services/clickup";
+import { getIndexStatus, startReindex } from "./services/indexer";
 import { naturalLanguageInputSchema, timeEntryUpdateSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -217,19 +218,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // For demo purposes, use demo user
       const user = await storage.getUserByUsername("demo");
       
-      let projects = [];
+      let projects = [] as { id: string; name: string }[];
       
       if (user?.clickupWorkspaceId && user?.clickupApiKey) {
         try {
-          // Fetch fresh tasks from ClickUp
-          const clickup = createClickUpService(user.clickupApiKey);
-          const tasks = await clickup.getTasksFromSpecificLocations();
-          console.log("Fetched ClickUp tasks from specified locations for projects endpoint:", tasks.length);
-          
-          projects = tasks.map(task => ({
-            id: task.id,
-            name: task.name,
-          }));
+          // Prefer cached projects for speed
+          const cached = await storage.getProjects(user.clickupWorkspaceId);
+          if (cached.length > 0) {
+            projects = cached.map(p => ({ id: p.clickupId, name: p.name }));
+          } else {
+            // Fallback: fetch once and cache
+            const clickup = createClickUpService(user.clickupApiKey);
+            const tasks = await clickup.getTasksFromSpecificLocations();
+            await storage.syncProjects(
+              user.clickupWorkspaceId,
+              tasks.map(t => ({ clickupId: t.id, name: t.name, workspaceId: user.clickupWorkspaceId! }))
+            );
+            projects = tasks.map(task => ({ id: task.id, name: task.name }));
+          }
         } catch (error) {
           console.error("Error fetching ClickUp tasks for projects:", error);
           return res.status(500).json({ message: "Failed to fetch ClickUp tasks" });
@@ -269,6 +275,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Projects error:", error);
       res.status(500).json({ message: "Failed to fetch projects" });
+    }
+  });
+
+  // Search projects (server-side substring search over cached list)
+  app.get("/api/projects/search", async (req, res) => {
+    try {
+      const q = (req.query.q as string | undefined)?.toLowerCase() || "";
+      const user = await storage.getUserByUsername("demo");
+      const workspaceId = user?.clickupWorkspaceId || "demo-workspace";
+      const cached = await storage.getProjects(workspaceId);
+      const projects = cached.map(p => ({ id: p.clickupId, name: p.name }));
+
+      if (!q) {
+        return res.json({ projects: projects.slice(0, 100) });
+      }
+
+      // Multi-term: comma or newline separated
+      const terms = q
+        .split(/[,\n]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      const results = projects.filter(p =>
+        terms.some(term => p.name.toLowerCase().includes(term))
+      ).slice(0, 200);
+
+      res.json({ projects: results });
+    } catch (error) {
+      console.error("Project search error:", error);
+      res.status(500).json({ message: "Failed to search projects" });
+    }
+  });
+
+  // Indexing status
+  app.get("/api/index/status", async (_req, res) => {
+    res.json(getIndexStatus());
+  });
+
+  // Trigger re-index
+  app.post("/api/index/reindex", async (_req, res) => {
+    try {
+      let user = await storage.getUserByUsername("demo");
+      if (!user) {
+        user = await storage.createUser({ 
+          username: "demo", 
+          password: "demo",
+          clickupApiKey: process.env.CLICKUP_API_KEY || "",
+          clickupWorkspaceId: process.env.CLICKUP_WORKSPACE_ID || "",
+        });
+      }
+
+      if (!user?.clickupApiKey || !user?.clickupWorkspaceId) {
+        return res.status(400).json({ message: "ClickUp credentials not configured" });
+      }
+
+      const status = await startReindex(user.clickupWorkspaceId, user.clickupApiKey);
+      res.json(status);
+    } catch (error) {
+      console.error("Reindex error:", error);
+      res.status(500).json({ message: "Failed to start re-index" });
     }
   });
 
@@ -350,7 +416,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             // For past dates, use a timestamp based on the current millisecond to ensure uniqueness
             // This creates a unique time slot that won't conflict with any other submission
-            const msInDay = currentTime % (24 * 60 * 60 * 1000);
+            const now = Date.now();
+            const msInDay = now % (24 * 60 * 60 * 1000);
             const hours = Math.floor(msInDay / (60 * 60 * 1000));
             const minutes = Math.floor((msInDay % (60 * 60 * 1000)) / (60 * 1000));
             const seconds = Math.floor((msInDay % (60 * 1000)) / 1000);

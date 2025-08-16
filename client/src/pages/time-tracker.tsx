@@ -11,7 +11,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Clock, MessageSquare, Table, Send, Eye, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Check, ChevronsUpDown, Search } from "lucide-react";
+import { Clock, MessageSquare, Table, Send, Eye, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Check, ChevronsUpDown, Search, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ParsedEntry {
@@ -45,8 +45,30 @@ export default function TimeTracker() {
   const [showPreview, setShowPreview] = useState(false);
   const [openComboboxes, setOpenComboboxes] = useState<Record<number, boolean>>({});
   const [searchValues, setSearchValues] = useState<Record<number, string>>({});
+  const [remoteResults, setRemoteResults] = useState<Record<number, Project[]>>({});
+  const [isSearching, setIsSearching] = useState<Record<number, boolean>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Index status polling
+  const { data: indexStatus, refetch: refetchIndexStatus, isFetching: isIndexFetching } = useQuery({
+    queryKey: ["/api/index/status"],
+    refetchInterval: 2000,
+  });
+
+  const reindexMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/index/reindex");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Re-index started", description: "Background indexing has begun." });
+      refetchIndexStatus();
+    },
+    onError: (error) => {
+      toast({ title: "Failed to start re-index", description: error instanceof Error ? error.message : "", variant: "destructive" });
+    }
+  });
 
   // Fetch available projects
   const { data: projectsData } = useQuery({
@@ -220,13 +242,44 @@ export default function TimeTracker() {
               </div>
               <h1 className="text-xl font-semibold text-slate-900">AI Time Tracker</h1>
             </div>
-            <div className="flex items-center space-x-2 text-sm text-slate-600">
+            <div className="flex items-center space-x-3 text-sm text-slate-600">
               <div className="flex items-center space-x-1">
                 <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
                 <span>ClickUp Connected</span>
               </div>
+              <div className="h-4 w-px bg-slate-300" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => reindexMutation.mutate()}
+                disabled={reindexMutation.isPending || (indexStatus as any)?.isIndexing}
+                className="gap-2"
+              >
+                {((indexStatus as any)?.isIndexing) ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Re-index
+              </Button>
             </div>
           </div>
+          {(indexStatus as any)?.isIndexing && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                <span>{(indexStatus as any)?.message || "Indexing..."}</span>
+                <span>
+                  {(indexStatus as any)?.current || 0} / {(indexStatus as any)?.total || 0}
+                </span>
+              </div>
+              <div className="w-full h-2 rounded bg-slate-200 overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${Math.min(100, Math.floor((((indexStatus as any)?.current || 0) / Math.max(1, (indexStatus as any)?.total || 1)) * 100))}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -330,31 +383,53 @@ export default function TimeTracker() {
                             <PopoverContent className="w-[400px] p-0" align="start">
                               <Command>
                                 <CommandInput 
-                                  placeholder="Search tasks..." 
+                                  placeholder="Search tasks (comma or newline separated)…" 
                                   value={searchValues[index] || ""}
-                                  onValueChange={(value) => {
+                                  onValueChange={async (value) => {
                                     setSearchValues(prev => ({ ...prev, [index]: value }));
+                                    if (!value || value.trim().length === 0) {
+                                      setRemoteResults(prev => ({ ...prev, [index]: [] }));
+                                      setIsSearching(prev => ({ ...prev, [index]: false }));
+                                      return;
+                                    }
+                                    setIsSearching(prev => ({ ...prev, [index]: true }));
+                                    try {
+                                      const res = await fetch(`/api/projects/search?q=${encodeURIComponent(value)}`);
+                                      const data = await res.json();
+                                      setRemoteResults(prev => ({ ...prev, [index]: (data?.projects || []) as Project[] }));
+                                    } catch (_) {
+                                      setRemoteResults(prev => ({ ...prev, [index]: [] }));
+                                    } finally {
+                                      setIsSearching(prev => ({ ...prev, [index]: false }));
+                                    }
                                   }}
                                   className="h-9"
                                 />
                                 <CommandList className="max-h-[300px]">
-                                  <CommandEmpty>No task found.</CommandEmpty>
+                                  <CommandEmpty>
+                                    {isSearching[index] ? (
+                                      <div className="flex items-center gap-2 text-slate-500 text-sm px-2 py-1.5">
+                                        <Loader2 className="h-4 w-4 animate-spin" /> Searching…
+                                      </div>
+                                    ) : (
+                                      "No task found."
+                                    )}
+                                  </CommandEmpty>
                                   <CommandGroup>
-                                    {projects
-                                      .filter(project => {
-                                        const search = (searchValues[index] || "").toLowerCase();
-                                        return project.name.toLowerCase().includes(search);
-                                      })
-                                      .slice(0, 50) // Show max 50 results for performance
-                                      .map((project) => (
+                                    {(searchValues[index]?.trim()
+                                      ? (remoteResults[index] || [])
+                                      : projects.slice(0, 50)
+                                    ).map((project) => (
                                         <CommandItem
                                           key={project.id}
                                           value={project.name}
-                                          onSelect={() => {
+                                          onMouseDown={(e) => {
+                                            e.preventDefault();
                                             updateEntry(index, 'projectId', project.id);
                                             updateEntry(index, 'projectName', project.name);
                                             setOpenComboboxes(prev => ({ ...prev, [index]: false }));
                                             setSearchValues(prev => ({ ...prev, [index]: "" }));
+                                            setRemoteResults(prev => ({ ...prev, [index]: [] }));
                                           }}
                                           className="cursor-pointer"
                                         >

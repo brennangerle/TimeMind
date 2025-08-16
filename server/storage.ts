@@ -1,5 +1,8 @@
 import { type User, type InsertUser, type TimeEntry, type InsertTimeEntry, type Project, type InsertProject } from "@shared/schema";
 import { randomUUID } from "crypto";
+import fs from "fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface IStorage {
   // User methods
@@ -26,11 +29,50 @@ export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private timeEntries: Map<string, TimeEntry>;
   private projects: Map<string, Project>;
+  private projectsCachePath: string;
 
   constructor() {
     this.users = new Map();
     this.timeEntries = new Map();
     this.projects = new Map();
+
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const cacheDir = path.resolve(__dirname, "cache");
+    this.projectsCachePath = path.join(cacheDir, "projects.json");
+    // Initialize cache directory and load projects
+    this.initializeCache(cacheDir).catch(() => undefined);
+  }
+
+  private async initializeCache(cacheDir: string): Promise<void> {
+    try {
+      await fs.mkdir(cacheDir, { recursive: true });
+      await this.loadProjectsFromDisk();
+    } catch {
+      // ignore
+    }
+  }
+
+  private async loadProjectsFromDisk(): Promise<void> {
+    try {
+      const content = await fs.readFile(this.projectsCachePath, "utf8");
+      const data: Project[] = JSON.parse(content);
+      this.projects.clear();
+      for (const project of data) {
+        this.projects.set(project.id, project);
+      }
+    } catch {
+      // No cache yet
+    }
+  }
+
+  private async saveProjectsToDisk(): Promise<void> {
+    try {
+      const all = Array.from(this.projects.values());
+      await fs.writeFile(this.projectsCachePath, JSON.stringify(all, null, 2), "utf8");
+    } catch (err) {
+      console.error("Failed to persist projects cache:", err);
+    }
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -154,7 +196,8 @@ export class MemStorage implements IStorage {
       const project = await this.createProject(projectData);
       syncedProjects.push(project);
     }
-    
+    // Persist to disk for cache durability
+    await this.saveProjectsToDisk();
     return syncedProjects;
   }
 }

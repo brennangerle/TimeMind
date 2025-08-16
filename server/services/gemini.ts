@@ -16,56 +16,103 @@ export interface ParsedEntry {
 // Fallback parsing function for demo purposes
 function fallbackParse(text: string, availableProjects: string[] = []): ParsedEntry[] {
   console.log("Using fallback parsing (Gemini API not available)");
-  
-  // Simple regex-based parsing for demo
-  const durationMatch = text.match(/(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)/i);
-  let duration = 60; // default 1 hour
-  
-  if (durationMatch) {
-    const amount = parseInt(durationMatch[1]);
-    const unit = durationMatch[2].toLowerCase();
-    if (unit.startsWith('h')) {
-      duration = amount * 60;
-    } else {
-      duration = amount;
+
+  const lower = text.toLowerCase();
+  const todayIso = new Date().toISOString().split('T')[0];
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayIso = yesterday.toISOString().split('T')[0];
+
+  const resolveDate = (segment: string): string => {
+    const s = segment.toLowerCase();
+    if (s.includes('yesterday')) return yesterdayIso;
+    return todayIso;
+  };
+
+  const entries: ParsedEntry[] = [];
+
+  // Pattern A: "worked on X for 2 hours/minutes"
+  const patternA = /(?:worked\s+on|on)\s+(.+?)\s+for\s+(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/gi;
+  // Pattern B: "30 minutes for project X" or "15m for X"
+  const patternB = /(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)\s+for\s+(?:the\s+|a\s+|an\s+)?(.+?)(?=\.|,|;|\band\b|$)/gi;
+
+  const usedRanges: Array<{ start: number; end: number }> = [];
+
+  const addEntry = (project: string, amountStr: string, unit: string, segment: string) => {
+    let minutes = parseInt(amountStr, 10);
+    const u = unit.toLowerCase();
+    if (u.startsWith('h')) minutes = minutes * 60;
+    const date = resolveDate(segment);
+
+    let projectName = project.trim().replace(/[.,;]$/u, '');
+    // Light cleanup words at start
+    projectName = projectName.replace(/^(the|a|an)\s+/i, '').trim();
+
+    // Try fuzzy match with available projects
+    let confidence = 60;
+    if (availableProjects.length > 0) {
+      const match = availableProjects.find(p => {
+        const pl = p.toLowerCase();
+        const nl = projectName.toLowerCase();
+        return pl.includes(nl) || nl.includes(pl);
+      });
+      if (match) {
+        projectName = match;
+        confidence = 85;
+      }
     }
+
+    entries.push({
+      projectName: projectName || 'General Work',
+      duration: Math.max(1, minutes || 60),
+      date,
+      notes: segment.trim(),
+      confidence,
+    });
+  };
+
+  // Collect matches for Pattern A
+  for (const m of text.matchAll(patternA)) {
+    const [full, project, amount, unit] = m as unknown as [string, string, string, string];
+    const start = m.index ?? 0;
+    const end = start + full.length;
+    usedRanges.push({ start, end });
+    // Segment context
+    const segment = text.slice(Math.max(0, start - 50), Math.min(text.length, end + 50));
+    addEntry(project, amount, unit, segment);
   }
-  
-  // Simple date parsing
-  let date = new Date().toISOString().split('T')[0];
-  if (text.includes('yesterday')) {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    date = yesterday.toISOString().split('T')[0];
+
+  // Collect matches for Pattern B (avoid overlapping with A)
+  for (const m of text.matchAll(patternB)) {
+    const [full, amount, unit, project] = m as unknown as [string, string, string, string];
+    const start = m.index ?? 0;
+    const end = start + full.length;
+    const overlaps = usedRanges.some(r => !(end <= r.start || start >= r.end));
+    if (overlaps) continue;
+    const segment = text.slice(Math.max(0, start - 50), Math.min(text.length, end + 50));
+    addEntry(project, amount, unit, segment);
   }
-  
-  // Extract potential project names
-  const projectWords = text.split(' ').filter(word => 
-    word.length > 3 && !['worked', 'hours', 'minutes', 'yesterday', 'today', 'this', 'that', 'with', 'from'].includes(word.toLowerCase())
-  );
-  
-  let projectName = projectWords.slice(0, 2).join(' ') || 'General Work';
-  
-  // Try to match with available projects
-  let confidence = 50;
-  if (availableProjects.length > 0) {
-    const match = availableProjects.find(p => 
-      text.toLowerCase().includes(p.toLowerCase()) || 
-      p.toLowerCase().includes(projectName.toLowerCase())
-    );
-    if (match) {
-      projectName = match;
-      confidence = 85;
-    }
+
+  if (entries.length > 0) {
+    return entries;
   }
-  
-  return [{
-    projectName,
-    duration,
-    date,
-    notes: text,
-    confidence
-  }];
+
+  // Fallback single entry if nothing matched
+  const singleDurationMatch = text.match(/(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)/i);
+  let duration = 60;
+  if (singleDurationMatch) {
+    const amount = parseInt(singleDurationMatch[1], 10);
+    const unit = singleDurationMatch[2].toLowerCase();
+    duration = unit.startsWith('h') ? amount * 60 : amount;
+  }
+  const date = resolveDate(text);
+  let projectName = (text.match(/worked\s+on\s+(.+?)(?:\.|,|;|$)/i)?.[1] || '').trim();
+  if (!projectName) {
+    // pick two significant words
+    const words = text.split(/\s+/).filter(w => w.length > 3);
+    projectName = words.slice(0, 3).join(' ') || 'General Work';
+  }
+  return [{ projectName, duration, date, notes: text, confidence: 50 }];
 }
 
 export async function parseNaturalLanguageInput(
@@ -176,17 +223,6 @@ If no good match exists (confidence < 30), return null.`;
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",
-        responseSchema: {
-          type: "object",
-          properties: {
-            projectId: { type: "string" },
-            confidence: { type: "number" },
-          },
-          anyOf: [
-            { required: ["projectId", "confidence"] },
-            { type: "null" }
-          ],
-        },
       },
       contents: `Project to match: "${projectName}"
 

@@ -1,0 +1,35 @@
+{
+  "rules": [
+    {
+      "name": "Frontend",
+      "patterns": [
+        "client/**/*"
+      ],
+      "description": "Frontend code located in the 'client' directory."
+    },
+    {
+      "name": "Backend",
+      "patterns": [
+        "server/**/*"
+      ],
+      "description": "Backend code located in the 'server' directory."
+    },
+    {
+      "name": "Shared",
+      "patterns": [
+        "shared/**/*"
+      ],
+      "description": "Shared code used by both frontend and backend."
+    },
+    {
+      "name": "Configuration",
+      "patterns": [
+        "*.config.js",
+        "*.config.ts",
+        "*.json",
+        "drizzle.config.ts"
+      ],
+      "description": "Configuration files for the project."
+    }
+  ]
+}
